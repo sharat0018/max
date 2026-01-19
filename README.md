@@ -243,7 +243,7 @@ This project is created for the Zoho SalesIQ Bot Competition.
 
 ## 👨‍💻 Author
 
-**Team CLIQTRIX**  
+**Team SHARAT**  
 Built with ❤️ using Zoho SalesIQ and Shopify
 
 ---
