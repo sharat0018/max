@@ -42,7 +42,7 @@
 
 ## 🚀 Live Demo
 
-- **Website**: https://max-cypher.zohosites.com/
+- **Website**:(https://cliqtrix.vercel.app/)
 - **Zobot Name**: MAX - CLIQTRIX E-Commerce Assistant
 - **Platform**: Zoho SalesIQ
 
