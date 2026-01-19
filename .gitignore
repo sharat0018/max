@@ -1,0 +1,37 @@
+# Sensitive Configuration Files
+*.env
+.env.local
+.env.production
+config.json
+credentials.json
+
+# API Keys and Tokens
+*_token.txt
+*_key.txt
+secrets/
+
+# Zoho SalesIQ
+salesiq_config.json
+
+# Shopify
+shopify_credentials.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

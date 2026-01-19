@@ -1,0 +1,580 @@
+// ============================================
+// CLIQTRIX E-Commerce Zobot Configuration
+// ============================================
+// Replace these with your actual Shopify credentials
+shopifyDomain = "your-store.myshopify.com";
+shopifyAccessToken = "your_shopify_admin_api_token";
+shopifyApiVersion = "2023-10";
+
+// ============================================
+// INITIALIZATION
+// ============================================
+response = Map();
+msg = message.get("text");
+if(msg == null){msg = "";}
+msg = msg.trim();
+msgLower = msg.toLowerCase();
+
+userEmail = visitor.get("user_email");
+if(userEmail == null || userEmail == ""){
+userEmail = "demo@cliqtrix.com";
+}
+
+// Setup API headers for Shopify Admin API (OAuth 2.0)
+headers = Map();
+headers.put("X-Shopify-Access-Token",shopifyAccessToken);
+
+// ============================================
+// FETCH PRODUCTS FROM SHOPIFY
+// ============================================
+productsUrl = "https://" + shopifyDomain + "/admin/api/" + shopifyApiVersion + "/products.json?limit=50";
+productsResp = invokeurl[url:productsUrl type:GET headers:headers];
+products = productsResp.get("products");
+if(products == null){products = List();}
+
+// ============================================
+// INTENT: DEALS & OFFERS
+// ============================================
+if(msgLower.contains("deal") || msgLower.contains("offer") || msgLower.contains("discount") || msgLower.contains("sale")){
+dealsText = "TODAY'S EXCLUSIVE DEALS\n\n";
+discountList = List();
+dealCount = 0;
+
+for each product in products{
+variants = product.get("variants");
+if(variants != null && variants.size() > 0){
+variant = variants.get(0);
+price = variant.get("price");
+comparePrice = variant.get("compare_at_price");
+
+// Calculate discount percentage
+if(comparePrice != null){
+discountDecimal = (comparePrice.toDecimal() - price.toDecimal()) / comparePrice.toDecimal() * 100;
+discount = discountDecimal.round(0);
+dealCount = dealCount + 1;
+dealsText = dealsText + dealCount + ". " + product.get("title") + "\n   Rs." + price + " (Save " + discount + "%)\n\n";
+
+discountOption = discount + "% OFF";
+if(!discountList.contains(discountOption)){
+discountList.add(discountOption);
+}
+}
+}
+}
+
+if(dealCount == 0){
+dealsText = "No active deals right now.\nTry browsing all products.";
+response.put("suggestions",{"Products"});
+}else{
+dealsText = dealsText + "Limited time offers!";
+}
+
+response.put("action","reply");
+response.put("replies",{dealsText});
+if(discountList.size() > 0){
+response.put("suggestions",discountList);
+}
+return response;
+}
+
+// ============================================
+// INTENT: FILTER BY DISCOUNT PERCENTAGE
+// ============================================
+if(msgLower.contains("% off")){
+discountValue = msg.replaceAll("[^0-9]","");
+productText = "PRODUCTS WITH " + discountValue + "% OFF\n\n";
+productList = List();
+foundCount = 0;
+
+for each product in products{
+variants = product.get("variants");
+if(variants != null && variants.size() > 0){
+variant = variants.get(0);
+price = variant.get("price");
+comparePrice = variant.get("compare_at_price");
+
+if(comparePrice != null){
+discountDecimal = (comparePrice.toDecimal() - price.toDecimal()) / comparePrice.toDecimal() * 100;
+discount = discountDecimal.round(0);
+
+if(discount + "" == discountValue){
+foundCount = foundCount + 1;
+productText = productText + product.get("title") + "\n  Rs." + price + " (was Rs." + comparePrice + ")\n\n";
+productList.add(product.get("title"));
+}
+}
+}
+}
+
+if(foundCount == 0){
+productText = "No products found with " + discountValue + "% discount.";
+}
+
+response.put("action","reply");
+response.put("replies",{productText});
+if(productList.size() > 0){
+response.put("suggestions",productList);
+}
+return response;
+}
+
+// ============================================
+// INTENT: BROWSE PRODUCT CATALOG
+// ============================================
+if(msgLower.contains("browse") || msgLower.contains("catalog") || msgLower.contains("product")){
+productText = "OUR PRODUCT CATALOG\n\n";
+productList = List();
+count = 0;
+
+for each product in products{
+variants = product.get("variants");
+if(variants != null && variants.size() > 0){
+variant = variants.get(0);
+price = variant.get("price");
+count = count + 1;
+productText = productText + count + ". " + product.get("title") + "\n   Rs." + price + "\n\n";
+productList.add(product.get("title"));
+}
+}
+
+if(count == 0){
+productText = "No products available.";
+}else{
+productText = productText + "Click any product to view details.";
+}
+
+response.put("action","reply");
+response.put("replies",{productText});
+if(productList.size() > 0){
+response.put("suggestions",productList);
+}
+return response;
+}
+
+// ============================================
+// INTENT: VIEW PRODUCT DETAILS
+// ============================================
+productMatched = false;
+for each product in products{
+if(product.get("title").equalsIgnoreCase(msg)){
+productMatched = true;
+variants = product.get("variants");
+
+if(variants != null && variants.size() > 0){
+variant = variants.get(0);
+price = variant.get("price");
+comparePrice = variant.get("compare_at_price");
+images = product.get("images");
+productHandle = product.get("handle");
+productUrl = "https://" + shopifyDomain + "/products/" + productHandle;
+variantId = variant.get("id");
+productTitle = product.get("title");
+
+// Build product details
+productDetails = product.get("title") + "\n\n";
+productDetails = productDetails + "Price: Rs." + price + "\n";
+
+if(comparePrice != null){
+discountDecimal = (comparePrice.toDecimal() - price.toDecimal()) / comparePrice.toDecimal() * 100;
+discount = discountDecimal.round(0);
+savings = comparePrice.toDecimal() - price.toDecimal();
+productDetails = productDetails + "Special Offer: " + discount + "% OFF\n";
+productDetails = productDetails + "You Save: Rs." + savings + "\n";
+productDetails = productDetails + "Original Price: Rs." + comparePrice + "\n";
+}
+
+inventory = variant.get("inventory_quantity");
+if(inventory != null && inventory > 0){
+productDetails = productDetails + "Stock: " + inventory + " units\n";
+}else{
+productDetails = productDetails + "Availability: In Stock\n";
+}
+productDetails = productDetails + "Fast Delivery Available";
+
+// Create rich reply with image and link
+reply = Map();
+reply.put("text",productDetails);
+reply.put("type","links");
+reply.put("links",{{"text":"View Full Details","url":productUrl,"target":"_blank"}});
+
+if(images != null && images.size() > 0){
+reply.put("image",images.get(0).get("src"));
+}
+
+response.put("action","reply");
+response.put("replies",{reply});
+response.put("suggestions",{"Add " + productTitle + " to Cart","Buy Now " + productTitle,"View More"});
+return response;
+}
+}
+}
+
+// ============================================
+// INTENT: BUY NOW (Quick Purchase)
+// ============================================
+if(msgLower.contains("buy now")){
+extractedProduct = msg.replaceAll("Buy Now ","").replaceAll("Buy now ","").trim();
+
+for each product in products{
+if(product.get("title").equalsIgnoreCase(extractedProduct)){
+variants = product.get("variants");
+if(variants != null && variants.size() > 0){
+variant = variants.get(0);
+productTitle = product.get("title");
+price = variant.get("price");
+
+response.put("action","reply");
+response.put("replies",{"BUY NOW\n\n" + productTitle + "\nPrice: Rs." + price + "\n\nFormat: Checkout 1 " + productTitle + " your@email.com"});
+response.put("suggestions",{"Checkout 1 " + productTitle + " demo@cliqtrix.com"});
+return response;
+}
+}
+}
+
+response.put("action","reply");
+response.put("replies",{"Please select a product first."});
+response.put("suggestions",{"Products","Deals"});
+return response;
+}
+
+// ============================================
+// INTENT: ADD TO CART
+// ============================================
+if(msgLower.contains("add") && msgLower.contains("cart")){
+extractedProduct = msg.replaceAll("Add ","").replaceAll(" to Cart","").trim();
+
+for each product in products{
+if(product.get("title").equalsIgnoreCase(extractedProduct)){
+variants = product.get("variants");
+if(variants != null && variants.size() > 0){
+variant = variants.get(0);
+productTitle = product.get("title");
+price = variant.get("price");
+variantId = variant.get("id");
+inventory = variant.get("inventory_quantity");
+if(inventory == null){inventory = "Available";}
+
+response.put("action","reply");
+response.put("replies",{"ADDED TO CART\n\n" + productTitle + "\nRs." + price + " per unit\nStock: " + inventory + "\n\nType: quantity productname\nExample: 2 " + productTitle});
+return response;
+}
+}
+}
+
+response.put("action","reply");
+response.put("replies",{"Please select a product first."});
+response.put("suggestions",{"Products","Deals"});
+return response;
+}
+
+// ============================================
+// INTENT: SET QUANTITY (Stateless Approach)
+// ============================================
+firstChar = msg.substring(0,1);
+isDigit = false;
+if(firstChar == "0" || firstChar == "1" || firstChar == "2" || firstChar == "3" || firstChar == "4" || firstChar == "5" || firstChar == "6" || firstChar == "7" || firstChar == "8" || firstChar == "9"){
+isDigit = true;
+}
+
+if(isDigit && msg.contains(" ")){
+spaceIndex = msg.indexOf(" ");
+quantityStr = msg.substring(0,spaceIndex);
+productName = msg.substring(spaceIndex + 1).trim();
+quantity = quantityStr.toLong();
+
+if(quantity > 0 && quantity <= 100){
+for each product in products{
+if(product.get("title").equalsIgnoreCase(productName)){
+variants = product.get("variants");
+if(variants != null && variants.size() > 0){
+variant = variants.get(0);
+unitPrice = variant.get("price");
+variantId = variant.get("id");
+inventory = variant.get("inventory_quantity");
+
+// Validate stock availability
+if(inventory != null && quantity > inventory.toLong()){
+response.put("action","reply");
+response.put("replies",{"Sorry, only " + inventory + " units available.\n\nType: quantity productname\nExample: 2 " + productName});
+return response;
+}
+
+totalPrice = unitPrice.toDecimal() * quantity;
+
+response.put("action","reply");
+response.put("replies",{"CART UPDATED\n\n" + productName + "\nQuantity: " + quantity + "\nUnit Price: Rs." + unitPrice + "\nTotal: Rs." + totalPrice + "\n\nReady to checkout?\n\nFormat: Checkout [qty] [product] [email]\nExample: Checkout " + quantity + " " + productName + " your@email.com"});
+response.put("suggestions",{"Checkout " + quantity + " " + productName + " demo@cliqtrix.com","Continue Shopping"});
+return response;
+}
+}
+}
+}
+}
+
+// ============================================
+// INTENT: CHECKOUT (Email Collection)
+// ============================================
+if(msgLower.contains("checkout")){
+checkoutStartsWith = false;
+if(msg.length() >= 8){
+first8 = msg.substring(0,8).toLowerCase();
+if(first8 == "checkout"){
+checkoutStartsWith = true;
+}
+}
+
+if(checkoutStartsWith && msg.contains(" ")){
+checkoutText = msg.substring(9);
+
+if(checkoutText.contains(" ")){
+spaceIndex = checkoutText.indexOf(" ");
+quantityStr = checkoutText.substring(0,spaceIndex);
+remaining = checkoutText.substring(spaceIndex + 1).trim();
+
+// Extract email from last token
+if(remaining.contains(" ") && remaining.contains("@")){
+lastSpace = remaining.lastIndexOf(" ");
+productName = remaining.substring(0,lastSpace).trim();
+customerEmail = remaining.substring(lastSpace + 1).trim();
+}else{
+productName = remaining;
+customerEmail = "demo@cliqtrix.com";
+}
+
+quantity = quantityStr.toLong();
+
+for each product in products{
+if(product.get("title").equalsIgnoreCase(productName)){
+variants = product.get("variants");
+if(variants != null && variants.size() > 0){
+variant = variants.get(0);
+unitPrice = variant.get("price");
+variantId = variant.get("id");
+totalPrice = unitPrice.toDecimal() * quantity;
+
+response.put("action","reply");
+response.put("replies",{"CHECKOUT\n\nProduct: " + productName + "\nQuantity: " + quantity + "\nTotal: Rs." + totalPrice + "\n\nDeliver to: " + customerEmail + "\n\nConfirm to proceed:"});
+response.put("suggestions",{"Confirm " + quantity + " " + productName + " " + customerEmail,"Cancel"});
+return response;
+}
+}
+}
+}
+}
+}
+
+// ============================================
+// INTENT: CONFIRM ORDER (Create in Shopify)
+// ============================================
+if(msgLower.contains("confirm")){
+confirmStartsWith = false;
+if(msg.length() >= 7){
+first7 = msg.substring(0,7).toLowerCase();
+if(first7 == "confirm"){
+confirmStartsWith = true;
+}
+}
+
+if(confirmStartsWith && msg.contains(" ")){
+confirmText = msg.substring(8);
+
+if(confirmText.contains(" ")){
+spaceIndex = confirmText.indexOf(" ");
+quantityStr = confirmText.substring(0,spaceIndex);
+remaining = confirmText.substring(spaceIndex + 1).trim();
+
+// Extract email from last token
+if(remaining.contains(" ") && remaining.contains("@")){
+lastSpace = remaining.lastIndexOf(" ");
+productName = remaining.substring(0,lastSpace).trim();
+customerEmail = remaining.substring(lastSpace + 1).trim();
+}else{
+productName = remaining;
+customerEmail = "demo@cliqtrix.com";
+}
+
+quantity = quantityStr.toLong();
+
+for each product in products{
+if(product.get("title").equalsIgnoreCase(productName)){
+variants = product.get("variants");
+if(variants != null && variants.size() > 0){
+variant = variants.get(0);
+unitPrice = variant.get("price");
+variantId = variant.get("id");
+totalPrice = unitPrice.toDecimal() * quantity;
+
+// Build Shopify order payload
+lineItem = Map();
+lineItem.put("variant_id",variantId);
+lineItem.put("quantity",quantity);
+
+lineItemsList = List();
+lineItemsList.add(lineItem);
+
+orderInner = Map();
+orderInner.put("line_items",lineItemsList);
+orderInner.put("email",customerEmail);
+orderInner.put("financial_status","pending");
+
+orderBody = Map();
+orderBody.put("order",orderInner);
+
+// Create order via Shopify Admin API
+ordersUrl = "https://" + shopifyDomain + "/admin/api/" + shopifyApiVersion + "/orders.json";
+headers.put("Content-Type","application/json");
+shopifyOrderResp = invokeurl[url:ordersUrl type:POST parameters:orderBody.toString() headers:headers];
+
+orderObj = shopifyOrderResp.get("order");
+if(orderObj != null){
+orderName = orderObj.get("name");
+
+response.put("action","reply");
+response.put("replies",{"ORDER CREATED!\n\nThank you!\n\nOrder ID: " + orderName + "\nAmount: Rs." + totalPrice + "\n\nConfirmation sent to " + customerEmail + "\n\nTrack from 'My Orders'."});
+response.put("suggestions",{"My Orders","Continue Shopping","Contact Support"});
+return response;
+}else{
+response.put("action","reply");
+response.put("replies",{"Error creating order. Try again."});
+response.put("suggestions",{"Contact Support"});
+return response;
+}
+}
+}
+}
+}
+}
+}
+
+// ============================================
+// INTENT: RETURN ORDER (Step 1)
+// ============================================
+if(msgLower.contains("return #")){
+orderNum = msg.replaceAll("[^0-9]","");
+
+response.put("action","reply");
+response.put("replies",{"RETURN ORDER #" + orderNum + "\n\nTo confirm, type: Cancel " + orderNum});
+response.put("suggestions",{"Cancel " + orderNum,"Go Back"});
+return response;
+}
+
+// ============================================
+// INTENT: CANCEL ORDER (Step 2)
+// ============================================
+if(msgLower.contains("cancel ") && !msgLower.contains("@")){
+orderNum = msg.replaceAll("[^0-9]","");
+
+// Fetch all orders from Shopify
+allOrdersUrl = "https://" + shopifyDomain + "/admin/api/" + shopifyApiVersion + "/orders.json?status=any&limit=250";
+allOrdersResp = invokeurl[url:allOrdersUrl type:GET headers:headers];
+allOrdersList = allOrdersResp.get("orders");
+
+foundOrder = null;
+if(allOrdersList != null && allOrdersList.size() > 0){
+for each ord in allOrdersList{
+orderName = ord.get("name");
+if(orderName == "#" + orderNum){
+foundOrder = ord;
+break;
+}
+}
+}
+
+if(foundOrder != null){
+fulfillmentStatus = foundOrder.get("fulfillment_status");
+
+// Only allow cancellation if not dispatched
+if(fulfillmentStatus == null){
+orderId = foundOrder.get("id");
+cancelUrl = "https://" + shopifyDomain + "/admin/api/" + shopifyApiVersion + "/orders/" + orderId + "/cancel.json";
+cancelBody = Map();
+cancelResp = invokeurl[url:cancelUrl type:POST parameters:cancelBody.toString() headers:headers];
+
+if(cancelResp.get("order") != null){
+response.put("action","reply");
+response.put("replies",{"RETURN PROCESSED\n\nOrder #" + orderNum + " cancelled successfully.\n\nRefund will be processed in 3-5 business days."});
+response.put("suggestions",{"Continue Shopping","Contact Support"});
+return response;
+}else{
+response.put("action","reply");
+response.put("replies",{"Unable to process return. Contact support."});
+response.put("suggestions",{"Contact Support"});
+return response;
+}
+}else{
+response.put("action","reply");
+response.put("replies",{"Order #" + orderNum + " already dispatched.\n\nCannot be returned online.\nContact support for assistance."});
+response.put("suggestions",{"Contact Support"});
+return response;
+}
+}else{
+response.put("action","reply");
+response.put("replies",{"Order #" + orderNum + " not found."});
+response.put("suggestions",{"My Orders"});
+return response;
+}
+}
+
+// ============================================
+// INTENT: TRACK MY ORDERS
+// ============================================
+if(msgLower.contains("my orders") || msgLower.contains("track order")){
+response.put("action","reply");
+response.put("replies",{"TRACK YOUR ORDERS\n\nEnter your email to view orders:"});
+return response;
+}
+
+// ============================================
+// INTENT: EMAIL INPUT FOR ORDER TRACKING
+// ============================================
+if(msgLower.contains("@") && msgLower.contains(".") && !msgLower.contains("checkout") && !msgLower.contains("confirm") && !msgLower.contains("cancel")){
+trackEmail = msg;
+
+// Fetch orders by email from Shopify
+ordersUrl = "https://" + shopifyDomain + "/admin/api/" + shopifyApiVersion + "/orders.json?email=" + trackEmail + "&status=any";
+ordersResp = invokeurl[url:ordersUrl type:GET headers:headers];
+ordersList = ordersResp.get("orders");
+
+if(ordersList == null || ordersList.size() == 0){
+response.put("action","reply");
+response.put("replies",{"No orders found for " + trackEmail});
+response.put("suggestions",{"Products","Deals"});
+return response;
+}
+
+trackText = "YOUR ORDERS\n\n";
+returnOptions = List();
+
+for each ord in ordersList{
+orderName = ord.get("name");
+fulfillmentStatus = ord.get("fulfillment_status");
+
+if(fulfillmentStatus == null){
+fulfillmentStatus = "Not dispatched";
+trackText = trackText + orderName + " - " + fulfillmentStatus + " (Can return)\n";
+returnOptions.add("Return " + orderName);
+}else{
+trackText = trackText + orderName + " - " + fulfillmentStatus + "\n";
+}
+}
+
+trackText = trackText + "\nClick order to return if not dispatched.";
+
+response.put("action","reply");
+response.put("replies",{trackText});
+
+if(returnOptions.size() > 0){
+response.put("suggestions",returnOptions);
+}else{
+response.put("suggestions",{"Continue Shopping"});
+}
+return response;
+}
+
+// ============================================
+// DEFAULT: WELCOME MESSAGE
+// ============================================
+response.put("action","reply");
+response.put("replies",{"Welcome to CLIQTRIX! 🛍️\n\nI can help you with:\n- Browse Deals & Offers\n- View Product Catalog\n- Add to Cart & Checkout\n- Track Your Orders"});
+response.put("suggestions",{"Deals","Products","My Orders"});
+return response;
